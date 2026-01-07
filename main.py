@@ -24,18 +24,14 @@ def save_checkpoint(uid):
     with open(CHECKPOINT_FILE, 'w') as f:
         f.write(str(uid))
 
-def identify_vendor(subject, sender):
-    s = subject.lower()
-    if "reliance" in s: return "Reliance_Retail"
-    if "heritage" in s: return "Heritage_Internal"
-    return "Others"
+# REMOVED: identify_vendor function (Logic moved to AI)
 
 def process_attachment(att, email_data, drive_svc, sheet_svc):
     if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR)
     local_path = os.path.join(TEMP_DIR, att.filename)
     
     try:
-        # Save
+        # Save locally
         with open(local_path, 'wb') as f:
             f.write(att.payload)
 
@@ -48,25 +44,31 @@ def process_attachment(att, email_data, drive_svc, sheet_svc):
             print(f"   [SKIP] Unreadable: {att.filename}")
             return
 
-        # Upload
-        date = email_data['date']
-        vendor = identify_vendor(email_data['subject'], email_data['sender'])
-        folder_path = ["MRF-POs", vendor, str(date.year), f"{date.month:02d}"]
+        # --- REORDERED: AI Extraction First (to determine Vendor Folder) ---
+        print(f"   [AI] Processing {att.filename}...")
+        data = extract_from_text(email_data['subject'], email_data['body'], file_text)
         
+        # Determine Vendor Folder (from AI or Fallback)
+        date = email_data['date']
+        if data and data.get('standardized_vendor_name'):
+            vendor = data.get('standardized_vendor_name')
+        else:
+            vendor = "Others" # Fallback if AI fails
+
+        # Upload to Drive
+        folder_path = ["MRF-POs", vendor, str(date.year), f"{date.month:02d}"]
         folder_id = drive_svc.get_or_create_path(folder_path)
+        
         with open(local_path, 'rb') as f:
             file_id, _ = drive_svc.upload_file(f.read(), att.filename, folder_id)
             drive_link = f"https://drive.google.com/file/d/{file_id}/view"
 
-        # AI Extract
-        print(f"   [AI] Processing {att.filename}...")
-        data = extract_from_text(email_data['subject'], email_data['body'], file_text)
-        
+        # Upsert to Sheets (Only if AI succeeded)
         if data:
             sheet_svc.upsert_po(data, date, drive_link)
-            print(f"   [SUCCESS] Saved PO: {data.get('po_number')}")
+            print(f"   [SUCCESS] Saved PO: {data.get('po_number')} (Vendor: {vendor})")
         else:
-            print("   [FAIL] AI extraction failed.")
+            print("   [FAIL] AI extraction failed (File saved to 'Others').")
 
     except Exception as e:
         print(f"   [ERROR] File Error: {e}")

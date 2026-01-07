@@ -20,6 +20,7 @@ REPORTS_FOLDER_ID = os.getenv("REPORTS_FOLDER_ID")
 FILTERS = {
     "subject_keywords": ["PO", "Purchase Order", "Order"], # Case insensitive
     "allowed_extensions": [".pdf", ".xlsx", ".csv", ".xls"],
+    
     "blocked_keywords": [
         "GRN", 
         "Goods Receipt", 
@@ -27,7 +28,9 @@ FILTERS = {
         "Delivered", 
         "Thank you", 
         "Accepted",
-        "Payment"
+        "Payment",
+        "marketing", "newsletter", "update", 
+        "insurance", "policy", "policies", "compliance", "regulatory"  
     ]
 }
 # Project Paths

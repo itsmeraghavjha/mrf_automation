@@ -5,7 +5,11 @@ from src.config import GEMINI_API_KEY
 genai.configure(api_key=GEMINI_API_KEY)
 
 def extract_from_text(subject, body, content):
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # FIX: Use response_mime_type for native JSON output
+    model = genai.GenerativeModel(
+        "gemini-1.5-flash",
+        generation_config={"response_mime_type": "application/json"}
+    )
     
     prompt = f"""
     You are a Logistics Data Expert. Extract PO details to strict JSON.
@@ -15,8 +19,15 @@ def extract_from_text(subject, body, content):
     Body: {body}
     File Content: {content}
     
+    INSTRUCTIONS:
+    1. Identify the Vendor from the text and populate "standardized_vendor_name". 
+       Use CamelCase or Underscores (e.g., "Reliance_Retail", "Heritage_Foods", "MRF_Internal").
+       If uncertain, use "Others".
+    2. Extract all PO fields and line items accurately.
+    
     REQUIRED OUTPUT STRUCTURE (JSON):
     {{
+        "standardized_vendor_name": "string",
         "po_number": "string",
         "customer_name": "string",
         "vendor_name": "string",
@@ -47,11 +58,8 @@ def extract_from_text(subject, body, content):
     
     try:
         response = model.generate_content(prompt)
-        text = response.text.replace("```json", "").replace("```", "")
-        start = text.find('{')
-        end = text.rfind('}') + 1
-        if start != -1 and end != -1:
-            return json.loads(text[start:end])
+        # FIX: No more manual string slicing needed
+        return json.loads(response.text)
     except Exception as e:
         print(f"   [LLM Error] {e}")
     return None

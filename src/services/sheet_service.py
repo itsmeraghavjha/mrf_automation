@@ -17,9 +17,8 @@ class SheetsService:
     def get_target_sheet_id(self, date_obj):
         date_str = date_obj.strftime("%Y-%m-%d")
         if date_str in self.active_files:
-            return self.active_files[date_str] # Simplification: assume not full for now
+            return self.active_files[date_str]
 
-        # Search existing
         base_name = f"MRF_Report_{date_str}"
         query = f"name contains '{base_name}' and '{REPORTS_FOLDER_ID}' in parents and trashed = false"
         results = self.drive_service.files().list(q=query, orderBy="createdTime desc", fields="files(id)").execute()
@@ -36,14 +35,12 @@ class SheetsService:
         sh = self.gc.create(file_name)
         new_id = sh.id
         
-        # Move to Folder
         file = self.drive_service.files().get(fileId=new_id, fields='parents').execute()
         previous_parents = ",".join(file.get('parents'))
         self.drive_service.files().update(
             fileId=new_id, addParents=REPORTS_FOLDER_ID, removeParents=previous_parents
         ).execute()
 
-        # Headers
         ws1 = sh.sheet1
         ws1.update_title("Sheet1")
         ws1.append_row([
@@ -67,27 +64,42 @@ class SheetsService:
         ws1 = sh.sheet1
         ws2 = sh.worksheet("Sheet2")
         
-        # Get existing POs to check for updates
         po_num = str(data.get('po_number')).strip()
         existing_pos = ws1.col_values(1)
         
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Master Row
+        # --- Update Sheet1 (Headers) ---
         row = [
-            po_num, data.get('po_date'), data.get('customer_name'), data.get('vendor_name'),
+            po_num, data.get('po_date'), data.get('customer_name'), data.get('standardized_vendor_name'),
             data.get('ship_to_code'), data.get('ship_to_address'), data.get('expected_delivery_date'),
             data.get('expiry_date'), data.get('vendor_gstin'), data.get('total_amount'),
             len(data.get('items', [])), "YES" if data.get('is_update') else "NO", timestamp, drive_link
         ]
 
         if po_num in existing_pos:
+            print(f"   [Sheets] Updating existing PO: {po_num}")
             row_idx = existing_pos.index(po_num) + 1
             ws1.update(values=[row], range_name=f"A{row_idx}:N{row_idx}")
+            
+            # --- FIX: Clean up old items in Sheet2 before appending new ones ---
+            try:
+                # This logic finds all rows matching the PO and deletes them
+                # We iterate backwards to prevent index shifting issues
+                s2_po_col = ws2.col_values(1)
+                rows_to_delete = [i + 1 for i, x in enumerate(s2_po_col) if x == po_num]
+                
+                if rows_to_delete:
+                    # Batch deletion is tricky in gspread without raw API, doing reverse loop
+                    for r_idx in reversed(rows_to_delete):
+                        ws2.delete_rows(r_idx)
+            except Exception as e:
+                print(f"   [Sheets Warning] Failed to clear old items: {e}")
+
         else:
             ws1.append_row(row)
 
-        # Append Items
+        # --- Update Sheet2 (Items) ---
         items_list = data.get('items', [])
         if items_list:
             item_rows = []
